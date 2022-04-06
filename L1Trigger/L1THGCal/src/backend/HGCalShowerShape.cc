@@ -27,6 +27,35 @@ float HGCalShowerShape::meanX(const std::vector<pair<float, float>>& energy_X_tc
   return X_mean;
 }
 
+// Compute correlations between any pair of variables
+float HGCalShowerShape::rhoXY(const std::vector<pair<float, float>>& tc_X_Y) const {
+  float X_sum = 0;
+  float Y_sum = 0;
+  float X2_sum = 0;
+  float Y2_sum = 0;
+  float XY_sum = 0;
+
+  float n = tc_X_Y.size();
+
+  for (const auto& tc : tc_X_Y) {
+    X_sum += tc.first;
+    Y_sum += tc.second;
+    X2_sum += tc.first*tc.first;
+    Y2_sum += tc.second*tc.second;
+    XY_sum += tc.first*tc.second;
+  }
+
+  float N = n*XY_sum-X_sum*Y_sum;
+  if( ( (n*X2_sum-X_sum*X_sum)<0 )||( (n*Y2_sum-Y_sum*Y_sum)<0 ) ) return -999;
+  float D = std::sqrt(n*X2_sum-X_sum*X_sum)*std::sqrt(n*Y2_sum-Y_sum*Y_sum);
+
+  float rho = -999;
+  if (D > 0)
+    rho = N / D;
+  return rho;
+}
+
+
 int HGCalShowerShape::firstLayer(const l1t::HGCalMulticluster& c3d) const {
   const std::unordered_map<uint32_t, edm::Ptr<l1t::HGCalCluster>>& clustersPtrs = c3d.constituents();
 
@@ -522,7 +551,8 @@ float HGCalShowerShape::sumLayers(const l1t::HGCalMulticluster& c3d, int start, 
   const std::unordered_map<uint32_t, edm::Ptr<l1t::HGCalCluster>>& clustersPtrs = c3d.constituents();
   unsigned nlayers = triggerTools_.getTriggerGeometry()->lastTriggerLayer();
   std::vector<double> layers(nlayers, 0);
-  for (const auto& id_clu : clustersPtrs) {
+  
+for (const auto& id_clu : clustersPtrs) {
     const std::unordered_map<uint32_t, edm::Ptr<l1t::HGCalTriggerCell>>& triggerCells = id_clu.second->constituents();
 
     for (const auto& id_tc : triggerCells) {
@@ -549,10 +579,57 @@ float HGCalShowerShape::sumLayers(const l1t::HGCalMulticluster& c3d, int start, 
   return frac;
 }
 
+float HGCalShowerShape::rhoROverZvsZ(const l1t::HGCalMulticluster& c3d) const {
+  const std::unordered_map<uint32_t, edm::Ptr<l1t::HGCalCluster>>& clustersPtrs = c3d.constituents();
+
+  std::vector<std::pair<float, float>> tc_roverz_z;
+
+  for (const auto& id_clu : clustersPtrs) {
+    const std::unordered_map<uint32_t, edm::Ptr<l1t::HGCalTriggerCell>>& triggerCells = id_clu.second->constituents();
+
+    for (const auto& id_tc : triggerCells) {
+      if (!pass(*id_tc.second, c3d))
+        continue;
+
+      float roverz = (id_tc.second->position().z() != 0.
+                     ? std::sqrt(pow(id_tc.second->position().x(), 2) + pow(id_tc.second->position().y(), 2)) /
+                           std::abs(id_tc.second->position().z())
+                     : 0.);
+      tc_roverz_z.emplace_back(std::make_pair(roverz, std::abs(id_tc.second->position().z())));
+    }
+  }
+
+  float rho = rhoXY(tc_roverz_z);
+
+  return rho;
+}
+
+
+float HGCalShowerShape::rhoPhivsZ(const l1t::HGCalMulticluster& c3d) const {
+  const std::unordered_map<uint32_t, edm::Ptr<l1t::HGCalCluster>>& clustersPtrs = c3d.constituents();
+
+  std::vector<std::pair<float, float>> tc_phi_z;
+
+  for (const auto& id_clu : clustersPtrs) {
+    const std::unordered_map<uint32_t, edm::Ptr<l1t::HGCalTriggerCell>>& triggerCells = id_clu.second->constituents();
+
+    for (const auto& id_tc : triggerCells) {
+      if (!pass(*id_tc.second, c3d))
+        continue;
+      tc_phi_z.emplace_back(std::make_pair(id_tc.second->phi(), std::abs(id_tc.second->position().z())));
+    }
+  }
+
+  float rho = rhoXY(tc_phi_z);
+
+  return rho;
+}
+
 int HGCalShowerShape::bitmap(const l1t::HGCalMulticluster& c3d, int start, int end, float threshold) const {
   const std::unordered_map<uint32_t, edm::Ptr<l1t::HGCalCluster>>& clustersPtrs = c3d.constituents();
   unsigned nlayers = triggerTools_.getTriggerGeometry()->lastTriggerLayer();
   std::vector<double> layers(nlayers, 0);
+  
   for (const auto& id_clu : clustersPtrs) {
     const std::unordered_map<uint32_t, edm::Ptr<l1t::HGCalTriggerCell>>& triggerCells = id_clu.second->constituents();
 
@@ -584,6 +661,10 @@ int HGCalShowerShape::bitmap(const l1t::HGCalMulticluster& c3d, int start, int e
   return bitmap;
 }
 
+=======
+
+
+>>>>>>> 1670d29d361 (Adding rho variable to simulation)
 void HGCalShowerShape::fillShapes(l1t::HGCalMulticluster& c3d, const HGCalTriggerGeometryBase& triggerGeometry) const {
   unsigned hcal_offset = triggerTools_.layers(ForwardSubdetector::HGCEE) / 2;
   unsigned lastlayer = triggerGeometry.lastTriggerLayer();
@@ -611,6 +692,7 @@ void HGCalShowerShape::fillShapes(l1t::HGCalMulticluster& c3d, const HGCalTrigge
   c3d.layer90percent(percentileLayer(c3d, triggerGeometry, 0.90));
   c3d.triggerCells67percent(percentileTriggerCells(c3d, 0.67));
   c3d.triggerCells90percent(percentileTriggerCells(c3d, 0.90));
+
   c3d.first1layers(sumLayers(c3d, 1, 1));
   c3d.first3layers(sumLayers(c3d, 1, 3));
   c3d.first5layers(sumLayers(c3d, 1, 5));
@@ -627,4 +709,8 @@ void HGCalShowerShape::fillShapes(l1t::HGCalMulticluster& c3d, const HGCalTrigge
   c3d.ebm0(bitmap(c3d, 1, hcal_offset, 0));
   c3d.ebm1(bitmap(c3d, 1, hcal_offset, 1));
   c3d.hbm(bitmap(c3d, hcal_offset, lastlayer, 0));
+
+  c3d.rhoROverZvsZ(rhoROverZvsZ(c3d));
+  c3d.rhoPhivsZ(rhoPhivsZ(c3d));
+
 }
